@@ -1,0 +1,138 @@
+library(ggplot2)
+##data from austin clemens- http://austinclemens.com/blog/2014/06/08/436/
+
+uber<-read.csv("/Users/lpetting/Desktop/downloads/uber_replication.csv")
+attach(uber)
+uber$dayofweek.f <- factor(uber$dayofweek)
+is.factor(uber$dayofweek.f)
+detach(uber)
+
+##look at most problematic days
+plot(uber$dayofweek, uber$incidents)
+##Note that sunday has largest effect, and that is what uber uses as baseline!! this may inflate impact of other variables! 
+
+
+##scatter of DUIs overtime, with regression lines
+time1<-lm(incidents~eventdate, subset=(uber==0))
+time2<-lm(incidents~eventdate, subset=(uber==1))
+pdf("duisovertime.pdf", width=10, height=4)
+print(plot(uber$eventdate, incidents, main="Scatterplot of all DUIs over time"))
+abline(time1, col="blue")
+abline(time2, col="red")
+abline(v=391)
+dev.off()
+
+#re-order days, just to get a better view
+uber$dayn= factor(dayofweek, levels=c("Mon","Tue", "Wed","Thu","Fri", "Sat", "Sun"), ordered=TRUE)
+pdf("meanduis.pdf", width=10, height=4)
+print(plot(uber$dayn, incidents, main="Mean DUIs Over the Course of the Week"))
+dev.off()
+
+#create indicators for time periods- allows us to test if Uber matters during periods where DUIs are more/less likely
+uber$weekend= ifelse (uber$dayofweek=="Fri"|uber$dayofweek=="Sat"|uber$dayofweek=="Sun",1,0)
+uber$thursplweekend= ifelse (uber$dayofweek=="Thu"|uber$dayofweek=="Fri"|uber$dayofweek=="Sat"|uber$dayofweek=="Sun",1,0)
+uber$sunthruwed= ifelse (uber$dayofweek=="Mon"|uber$dayofweek=="Tue"|uber$dayofweek=="Wed"|uber$dayofweek=="Thurs",1,0)
+
+
+
+#estimate models- all control for time, marijuana, and time of week (my time), subset by Uber (0/1)
+#first, estimate uber base model: (decent replication)
+base<-lm(formula = incidents ~ uber+dayofweek.f+eventdate+marijuana, data = uber)
+##then, my models
+weekend0<-lm(formula = incidents ~ weekend+eventdate+marijuana, data = uber,subset=(uber==0))
+weekend1<-lm(formula = incidents ~ weekend+eventdate+marijuana, data = uber,subset=(uber==1))
+summary(weekend0)
+summary(weekend1)
+thursplus0<-lm(formula = incidents ~ thursplweekend +eventdate+marijuana, data = uber,subset=(uber==0))
+thursplus1<-lm(formula = incidents ~ thursplweekend +eventdate+marijuana, data = uber,subset=(uber==1))
+summary(thursplus0)
+summary(thursplus1)
+week0<-lm(formula = incidents ~ sunthruwed +eventdate+marijuana, data = uber,subset=(uber==0))
+week1<-lm(formula = incidents ~ sunthruwed +eventdate+marijuana, data = uber,subset=(uber==1))
+summary(week0)
+summary(week1)
+summary(weekend0, weekend1, thursplus0, thursplus1, week0, week1)
+
+##calculate differences between models (bootstrapping), and add associated CIs- 
+#did not do sampling from a normal dist bc that assumes normality, which is only true asymptotically- bootstrapping does not 
+
+diff.betas<-NA 
+for(i in 1:1000){
+DF2<-uber[sample(nrow(uber), size=nrow(uber), replace=TRUE), ] 
+weekend0<-lm(formula = incidents ~ weekend+eventdate+marijuana, subset=(uber==0), data=DF2)
+weekend1<-lm(formula = incidents ~ weekend+eventdate+marijuana, subset=(uber==1), data=DF2)
+b1<-as.numeric(weekend0$coefficients["weekend"]) 
+b2<-as.numeric(weekend1$coefficients["weekend"]) 
+diff.betas[i]<-b2-b1 
+}
+mean(diff.betas)
+CI<-quantile(diff.betas, probs = c(.025, .975))
+print(CI)
+
+diff.betas<-NA 
+for(i in 1:1000){
+DF2<-uber[sample(nrow(uber), size=nrow(uber), replace=TRUE), ] 
+thursplus0<-lm(formula = incidents ~ thursplweekend +eventdate+marijuana, subset=(uber==0), data=DF2)
+thursplus1<-lm(formula = incidents ~ thursplweekend +eventdate+marijuana, subset=(uber==1), data=DF2)
+b1<-as.numeric(thursplus0$coefficients["thursplweekend"]) 
+b2<-as.numeric(thursplus1$coefficients["thursplweekend"]) 
+diff.betas[i]<-b2-b1 
+}
+mean(diff.betas)
+CI<-quantile(diff.betas, probs = c(.025, .975))
+print(CI)
+
+diff.betas<-NA 
+for(i in 1:1000){
+DF2<-uber[sample(nrow(uber), size=nrow(uber), replace=TRUE), ] 
+week0<-lm(formula = incidents ~ sunthruwed +eventdate+marijuana, subset=(uber==0), data=DF2)
+week1<-lm(formula = incidents ~ sunthruwed +eventdate+marijuana, subset=(uber==1), data=DF2)
+b1<-as.numeric(week0$coefficients["sunthruwed"]) 
+b2<-as.numeric(week1$coefficients["sunthruwed"]) 
+diff.betas[i]<-b2-b1 
+}
+mean(diff.betas)
+CI<-quantile(diff.betas, probs = c(.025, .975))
+print(CI)
+
+#create dataframe with data from above, in order to make plots
+model=c("Weekend, NO","Weekend, Uber","Long Weekend, NO", "Long Weekend, Uber", "Workweek, NO","Workweek, Uber"  )
+DUIs=c(3.044048, 3.797186, 2.610356, 3.4134504, -2.610356, -3.4134504)
+Uber=c("no", "yes", "no", "yes", "no", "yes")
+Time=c("Weekend","Weekend","Long Weekend", "Long Weekend","Workweek","Workweek")
+
+#make plot for all estimates across all models, compared
+data=data.frame(model,DUIs)
+pdf("bars.pdf", width=10, height=4)
+p.mo<- print(ggplot(data = data, aes(x=model, y=DUIs))+ geom_bar(colour="black", fill="#E69F00", stat="identity")+ggtitle("Comparing Models- Does Uber Decrease DUIs? When?"))
+##use1
+p.mo
+dev.off()
+
+#make plot for all estimates across all models, compared with boxes
+data1=data.frame(DUIs, Uber, Time)
+pdf("lines.pdf", width=6, height=6)
+lines<-print(ggplot(data=data1, aes(x=Time, y=DUIs, group=Uber, colour=Uber)) + geom_line() + geom_point()+ggtitle("Comparing Models- Does Uber Decrease DUIs? When?"))
+##use2
+dev.off()
+lines
+
+#dataframe for DIFF between the models
+x=c("Weekend", "Long Weekend", "Workweek")
+diff=c(0.7593311, 0.7844924, -0.8069217)
+lb=c(0.03365663,0.09135006, -1.5154702)
+ub=c(1.51113003, 1.45796741, -0.1514474)
+df=data.frame(x,diff, lb, ub)
+
+
+##plotting the differences, and their significance
+pdf("diff.pdf", width=6, height=5)
+test<-qplot(x,diff, main="Using Simulation: Only Reductions are during Workweek!", ylab="Change in DUIs", xlab="Time")+geom_errorbar(aes(x=x, ymin=lb, ymax=ub), width=0.25)
+test2<-test + geom_hline(aes(yintercept=0, col="red"))
+print(test2)
+dev.off()
+###USE
+test2
+
+#to flip 
+test2 + coord_flip()
